@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice Modulator Demo</title>
+    <title>Pitch Shifter Demo</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
     <style>
         body {
             font-family: sans-serif;
@@ -27,89 +28,86 @@
         }
         #startBtn { background-color: #4CAF50; color: white; }
         #stopBtn { background-color: #f44336; color: white; display: none; }
-        .controls { margin-top: 20px; text-align: center; }
-        input[type="range"] { width: 80vw; max-width: 300px; }
+        .controls { margin-top: 20px; text-align: center; background: #222; padding: 20px; border-radius: 10px;}
+        input[type="range"] { width: 80vw; max-width: 300px; margin: 10px 0; }
     </style>
 </head>
 <body>
 
-    <h2>Scammer Voice Demo</h2>
-    <p>Demonstrating real-time audio manipulation.</p>
+    <h2>Scammer Pitch Shifter</h2>
+    <p>Using Granular Synthesis for Male-to-Female shifting.</p>
 
     <button id="startBtn">Start Microphone</button>
     <button id="stopBtn">Stop Microphone</button>
 
     <div class="controls">
-        <label for="freqControl">Modulation Frequency: <span id="freqValue">50</span> Hz</label><br>
-        <input type="range" id="freqControl" min="10" max="1000" value="50">
-        <p style="font-size: 0.8rem; color: #aaa;">Slide up for higher pitch/more metallic artifacts.</p>
+        <label for="pitchControl">Pitch Shift (Semitones): <span id="pitchValue">4</span></label><br>
+        <input type="range" id="pitchControl" min="-12" max="12" value="4" step="1">
+        <p style="font-size: 0.8rem; color: #aaa;">+4 to +8 is usually the target for male-to-female.</p>
+        
+        <br>
+
+        <label for="windowControl">Artifacts (Window Size): <span id="windowValue">0.1</span>s</label><br>
+        <input type="range" id="windowControl" min="0.03" max="0.15" value="0.1" step="0.01">
+        <p style="font-size: 0.8rem; color: #aaa;">Smaller window = more robotic/metallic glitching.</p>
     </div>
 
     <script>
-        let audioContext;
-        let mediaStream;
-        let sourceNode;
-        let oscillator;
-        let ringModNode;
+        let mic;
+        let pitchShift;
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
-        const freqControl = document.getElementById('freqControl');
-        const freqValue = document.getElementById('freqValue');
+        const pitchControl = document.getElementById('pitchControl');
+        const pitchValue = document.getElementById('pitchValue');
+        const windowControl = document.getElementById('windowControl');
+        const windowValue = document.getElementById('windowValue');
 
-        // Update display value
-        freqControl.addEventListener('input', (e) => {
-            freqValue.textContent = e.target.value;
-            if (oscillator) {
-                oscillator.frequency.value = e.target.value;
+        // Update Pitch
+        pitchControl.addEventListener('input', (e) => {
+            pitchValue.textContent = e.target.value;
+            if (pitchShift) {
+                pitchShift.pitch = parseFloat(e.target.value);
+            }
+        });
+
+        // Update Window Size (The "Glitch" factor)
+        windowControl.addEventListener('input', (e) => {
+            windowValue.textContent = e.target.value;
+            if (pitchShift) {
+                pitchShift.windowSize = parseFloat(e.target.value);
             }
         });
 
         startBtn.addEventListener('click', async () => {
             try {
-                // Cell phone browsers require HTTPS or localhost to access the microphone
-                mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // Must be triggered by a user gesture to start Tone.js AudioContext
+                await Tone.start();
+
+                // Initialize the microphone input
+                mic = new Tone.UserMedia();
                 
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                
-                // 1. Get the raw microphone input
-                sourceNode = audioContext.createMediaStreamSource(mediaStream);
+                // Initialize the Pitch Shifter
+                pitchShift = new Tone.PitchShift({
+                    pitch: parseFloat(pitchControl.value),
+                    windowSize: parseFloat(windowControl.value)
+                }).toDestination(); // Route to speakers
 
-                // 2. Create the Ring Modulator (Gain Node)
-                // We use a gain node, but instead of a constant volume, we drive the volume
-                // up and down incredibly fast using an oscillator.
-                ringModNode = audioContext.createGain();
-                ringModNode.gain.value = 0; // Base volume at 0, oscillator does the work
-
-                // 3. Create the Oscillator (The "Robot/Metallic" effect generator)
-                oscillator = audioContext.createOscillator();
-                oscillator.type = 'sine';
-                oscillator.frequency.value = freqControl.value;
-
-                // Connect the oscillator to the gain parameter of the ring modulator
-                oscillator.connect(ringModNode.gain);
-
-                // 4. Route the audio: Mic -> Ring Modulator -> Speaker
-                sourceNode.connect(ringModNode);
-                ringModNode.connect(audioContext.destination);
-
-                // Start the modulation
-                oscillator.start();
+                // Open the mic and connect it to the shifter
+                await mic.open();
+                mic.connect(pitchShift);
 
                 startBtn.style.display = 'none';
                 stopBtn.style.display = 'inline-block';
 
             } catch (err) {
-                alert('Microphone access denied or not supported: ' + err.message);
+                alert('Microphone access denied or error: ' + err.message);
             }
         });
 
         stopBtn.addEventListener('click', () => {
-            if (audioContext) {
-                audioContext.close();
-            }
-            if (mediaStream) {
-                mediaStream.getTracks().forEach(track => track.stop());
+            if (mic) {
+                mic.close();
             }
             startBtn.style.display = 'inline-block';
             stopBtn.style.display = 'none';
