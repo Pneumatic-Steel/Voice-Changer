@@ -3,115 +3,136 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pitch Shifter Demo</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <title>Scammer Voicemail Simulator</title>
     <style>
         body {
             font-family: sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            background-color: #121212;
-            color: #ffffff;
-            margin: 0;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            height: 100vh; background-color: #121212; color: #ffffff; margin: 0;
         }
         button {
-            padding: 15px 30px;
-            font-size: 1.2rem;
-            margin: 10px;
-            border-radius: 8px;
-            border: none;
-            cursor: pointer;
-            font-weight: bold;
+            padding: 20px 40px; font-size: 1.5rem; margin: 20px;
+            border-radius: 12px; border: none; cursor: pointer; font-weight: bold;
+            background-color: #ff9800; color: white;
+            transition: background-color 0.2s;
         }
-        #startBtn { background-color: #4CAF50; color: white; }
-        #stopBtn { background-color: #f44336; color: white; display: none; }
-        .controls { margin-top: 20px; text-align: center; background: #222; padding: 20px; border-radius: 10px;}
-        input[type="range"] { width: 80vw; max-width: 300px; margin: 10px 0; }
+        button:active { background-color: #e65100; transform: scale(0.98); }
+        .controls { text-align: center; background: #222; padding: 20px; border-radius: 10px; width: 80%; max-width: 400px;}
+        input[type="range"] { width: 100%; margin: 15px 0; }
+        #status { color: #4CAF50; font-weight: bold; height: 20px; margin-bottom: 10px; }
     </style>
 </head>
 <body>
 
-    <h2>Scammer Pitch Shifter</h2>
-    <p>Using Granular Synthesis for Male-to-Female shifting.</p>
+    <h2>Walkie-Talkie Pitch Shift</h2>
+    <div id="status">Ready</div>
 
-    <button id="startBtn">Start Microphone</button>
-    <button id="stopBtn">Stop Microphone</button>
+    <button id="recordBtn">Hold to Record</button>
 
     <div class="controls">
-        <label for="pitchControl">Pitch Shift (Semitones): <span id="pitchValue">4</span></label><br>
-        <input type="range" id="pitchControl" min="-12" max="12" value="4" step="1">
-        <p style="font-size: 0.8rem; color: #aaa;">+4 to +8 is usually the target for male-to-female.</p>
-        
-        <br>
-
-        <label for="windowControl">Artifacts (Window Size): <span id="windowValue">0.1</span>s</label><br>
-        <input type="range" id="windowControl" min="0.03" max="0.15" value="0.1" step="0.01">
-        <p style="font-size: 0.8rem; color: #aaa;">Smaller window = more robotic/metallic glitching.</p>
+        <label for="pitchControl">Pitch Multiplier: <span id="pitchValue">1.4</span>x</label><br>
+        <input type="range" id="pitchControl" min="1.0" max="2.0" value="1.4" step="0.1">
+        <p style="font-size: 0.85rem; color: #aaa;">Simulates the cheap speed/pitch shift used by low-end scammers.</p>
     </div>
 
     <script>
-        let mic;
-        let pitchShift;
+        let audioContext;
+        let mediaRecorder;
+        let audioChunks = [];
 
-        const startBtn = document.getElementById('startBtn');
-        const stopBtn = document.getElementById('stopBtn');
+        const recordBtn = document.getElementById('recordBtn');
+        const statusDisplay = document.getElementById('status');
         const pitchControl = document.getElementById('pitchControl');
         const pitchValue = document.getElementById('pitchValue');
-        const windowControl = document.getElementById('windowControl');
-        const windowValue = document.getElementById('windowValue');
 
-        // Update Pitch
+        // Update UI
         pitchControl.addEventListener('input', (e) => {
             pitchValue.textContent = e.target.value;
-            if (pitchShift) {
-                pitchShift.pitch = parseFloat(e.target.value);
-            }
         });
 
-        // Update Window Size (The "Glitch" factor)
-        windowControl.addEventListener('input', (e) => {
-            windowValue.textContent = e.target.value;
-            if (pitchShift) {
-                pitchShift.windowSize = parseFloat(e.target.value);
+        // Initialize Audio Context on first interaction to appease mobile browsers
+        const initAudio = async () => {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
-        });
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+        };
 
-        startBtn.addEventListener('click', async () => {
+        // Pointerdown works better for mobile touch than mousedown
+        recordBtn.addEventListener('pointerdown', async (e) => {
+            e.preventDefault(); // Stop mobile text selection
+            await initAudio();
+            
             try {
-                // Must be triggered by a user gesture to start Tone.js AudioContext
-                await Tone.start();
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
 
-                // Initialize the microphone input
-                mic = new Tone.UserMedia();
-                
-                // Initialize the Pitch Shifter
-                pitchShift = new Tone.PitchShift({
-                    pitch: parseFloat(pitchControl.value),
-                    windowSize: parseFloat(windowControl.value)
-                }).toDestination(); // Route to speakers
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
 
-                // Open the mic and connect it to the shifter
-                await mic.open();
-                mic.connect(pitchShift);
+                mediaRecorder.onstop = processAndPlay;
 
-                startBtn.style.display = 'none';
-                stopBtn.style.display = 'inline-block';
-
+                mediaRecorder.start();
+                recordBtn.style.backgroundColor = "#f44336";
+                recordBtn.textContent = "Recording...";
+                statusDisplay.textContent = "Speak now...";
+                statusDisplay.style.color = "#f44336";
             } catch (err) {
-                alert('Microphone access denied or error: ' + err.message);
+                statusDisplay.textContent = "Microphone access denied.";
+                statusDisplay.style.color = "#f44336";
             }
         });
 
-        stopBtn.addEventListener('click', () => {
-            if (mic) {
-                mic.close();
+        recordBtn.addEventListener('pointerup', (e) => {
+            e.preventDefault();
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+                // Stop all mic tracks to free up the hardware
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                
+                recordBtn.style.backgroundColor = "#4CAF50";
+                recordBtn.textContent = "Processing...";
+                statusDisplay.textContent = "Playing back...";
+                statusDisplay.style.color = "#4CAF50";
             }
-            startBtn.style.display = 'inline-block';
-            stopBtn.style.display = 'none';
         });
+
+        // Handle if they slide their finger off the button
+        recordBtn.addEventListener('pointerleave', (e) => {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                recordBtn.dispatchEvent(new Event('pointerup'));
+            }
+        });
+
+        async function processAndPlay() {
+            const audioBlob = new Blob(audioChunks);
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            
+            // Decode the raw audio data
+            const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            
+            // Create a buffer source to play it back
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            
+            // The cheap pitch shift: just play it faster. 
+            // It raises the pitch and creates that rushed, unnatural cadence scammers have.
+            source.playbackRate.value = parseFloat(pitchControl.value);
+            
+            source.connect(audioContext.destination);
+            source.start();
+
+            source.onended = () => {
+                recordBtn.style.backgroundColor = "#ff9800";
+                recordBtn.textContent = "Hold to Record";
+                statusDisplay.textContent = "Ready";
+                statusDisplay.style.color = "#ff9800";
+            };
+        }
     </script>
 </body>
 </html>
